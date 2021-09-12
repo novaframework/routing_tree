@@ -3,10 +3,7 @@
          new/0,
          new/1,
          lookup/3,
-         insert/3,
-         print/0,
-         print/1,
-         print/2
+         insert/3
         ]).
 
 -include("../include/routing_tree.hrl").
@@ -158,37 +155,6 @@ insert(<<$[, $., $., $., $]>>, _Acc, Value, _PrevNode, _Options) ->
     #node{path = '_', is_binding = false, value = [Value]};
 insert(<<X, Rest/bits>>, Acc, Value, PrevNode, Options) ->
     insert(Rest, <<Acc/binary, X>>, Value, PrevNode, Options).
-
-
--spec print() -> ok.
-print() ->
-    [{_, Dispatch}|_] = persistent_term:get(nova_dispatch),
-    print(Dispatch).
-
--spec print(#routing_tree{}) -> ok.
-print(#routing_tree{tree = #node{} = Tree}) ->
-    print(Tree, 0).
-
--spec print([#node{value :: [any()], children:: [any()], is_binding::boolean(),is_wildcard::boolean()}], integer()) -> ok.
-print([], _Level) -> ok;
-print([#node{path = Key, value = #node_value{} = Value, children = Children}|Tl], Level) ->
-    Indent = [ $  || _X <- lists:seq(0, Level) ],
-    io:format("~s", [Indent]),
-    Key0 =
-        case Key of
-            '_' -> <<"...">>;
-            _ -> Key
-        end,
-    io:format("/~s~n", [Key0]),
-    ExtraLength = length(erlang:binary_to_list(Key0)),
-    ExtraIndent = [ $  || _X <- lists:seq(0, ExtraLength) ],
-    lists:foreach(fun(#node_value{method = Method, module = Module, function = Function}) ->
-                          io:format("~s~s", [Indent,ExtraIndent]),
-                          io:format("<~s>(~s:~s)~n", [Method, Module, Function])
-                  end, Value),
-    print(Children, Level+ExtraLength),
-    print(Tl, Level).
-
 
 
 %%%%%%%%%%%%%%%%%%%%%%%

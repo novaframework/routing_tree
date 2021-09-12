@@ -1,13 +1,9 @@
 %% Method, Module, Function-record
+
 -record(node_value, {
-              method = '_' :: binary() | '_',
-              app :: atom(),
-              module :: atom(),
-              function :: atom(),
-              secure = false :: false | {Mod :: atom(), Fun :: atom()},
-              extra_state :: list(),
-              protocol = http :: http | static | ws
-             }).
+                     method = '_' :: binary() | '_',
+                     value :: any()
+                    }).
 
 
 -record(node, {
