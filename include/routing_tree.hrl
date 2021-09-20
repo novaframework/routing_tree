@@ -1,28 +1,30 @@
 %% Method, Module, Function-record
+-type options() :: #{
+                                  use_strict := boolean()
+                                 }.
+-export_type([options/0]).
 
--record(node_value, {
-                     method = '_' :: binary() | '_',
-                     value :: any()
-                    }).
-
+-record(node_comp, {
+                    comparator = '_' :: '_' | binary(),
+                    value = undefined :: any()
+                   }).
 
 -record(node, {
-               path = <<>> :: binary() | '_',
-               value = [] :: [#node_value{}],
+               segment = <<>> :: binary() | '_',
+               value = [] :: [#node_comp{}],
                children = [] :: [#node{}],
                is_binding = false :: boolean(), %% Indicates if this path has any bindings (Eg /:binding)
                is_wildcard = false :: boolean() %% Indicates if this is a '...'-path
               }).
 
--type routing_tree_options() :: #{
-                                  use_strict := boolean()
-                                 }.
--export_type([routing_tree_options/0]).
-
 -record(routing_tree, {
-                       tree = undefined :: #node{} | undefined,
-                       %% Some properties for this tree
-                       options = #{
-                                   use_strict => false
-                                  } :: routing_tree_options()
+                       tree = [] :: [#node{}]
                       }).
+
+-record(host_tree, {
+                    hosts = [] :: [{Host :: binary() | '_', Tree :: #routing_tree{}}],
+                    options = #{
+                                use_strict => false,
+                                convert_to_binary => false
+                               } :: options()
+                   }).

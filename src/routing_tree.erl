@@ -2,215 +2,268 @@
 -export([
          new/0,
          new/1,
-         lookup/3,
-         insert/3
+         insert/5,
+         lookup/4
         ]).
 
 -include("../include/routing_tree.hrl").
 
-%%--------------------------------------------------------------------
-%% @doc
-%% Creates a new routing tree structure with options set to <icode>Options</icode>.
-%% @end
-%%--------------------------------------------------------------------
--spec new(Options :: routing_tree_options()) -> #routing_tree{}.
-new(Options) when is_map(Options) ->
-    #routing_tree{options = Options}.
-
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Creates a new routing tree structure. Same as new/1 with Options set
-%% to <icode>#{use_strict => false}</icode>
-%% @end
-%%--------------------------------------------------------------------
--spec new() -> #routing_tree{}.
 new() ->
-    new(#{use_strict => false}).
+    #host_tree{}.
+
+new(Options) ->
+    #host_tree{options = Options}.
 
 
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Makes a lookup in the database for a specific path and method
-%% @end
-%%--------------------------------------------------------------------
--spec lookup(Path :: binary() | integer(), Method :: binary(), RoutingTree :: #routing_tree{}) -> {ok, ok} | %% Todo! Fix spec
-                                                                                                  {error, Reason :: any()}.
-lookup(Path, Method, #routing_tree{tree = Tree, options = Options}) when is_integer(Path) orelse
-                                                                         is_binary(Path) ->
-    lookup(Path, Method, <<>>, Tree, Options#{bindings => #{}}).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Lookup a url in the dispatch table.
-%% @end
-%%--------------------------------------------------------------------
--spec lookup(Path :: binary(), Method :: binary(), Acc :: binary(), PreviousNode :: #node{}, State :: map()) ->
-                    {ok, Value :: #node_value{}, State0 :: map()} |
-                    {error, Reason :: any()}.
-lookup(<<>>, Method, Acc, #node{children = Children}, #{bindings := Bindings} = State) ->
-    case find_node(Acc, Method, Children, []) of
-        {ok, binding, {#node{path = Key}, Value}} ->
-            {ok, Value, State#{bindings => Bindings#{Key => Acc}}};
-        {ok, _, {_Node, Value}} ->
-            {ok, Value, Bindings};
-        Error -> Error
-    end;
-lookup(<<$/, Rest/binary>>, Method, <<>>, Tree, Options) ->
-    %% Ignore since double /
-    lookup(Rest, Method, <<>>, Tree, Options);
-lookup(<<$/, Rest/binary>>, Method, Acc, #node{children = Children}, #{bindings := Bindings} = State) ->
-    case find_node(Acc, false, Children, []) of
-        {ok, path, {Node, _Value}} ->
-            lookup(Rest, Method, <<>>, Node, State);
-        {ok, wildcard, {_, Value}} ->
-            {ok, Value, Bindings};
-        {ok, binding, {#node{path = Key}=Node, undefined}} ->
-            lookup(Rest, Method, <<>>, Node, State#{bindings => Bindings#{Key => Acc}});
-        Error -> Error
-    end;
-lookup(<<X, Rest/binary>>, Method, Acc, Tree, State) ->
-    lookup(Rest, Method, <<Acc/binary, X>>, Tree, State).
-
-
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Insert a new node in the tree
-%% @end
-%%--------------------------------------------------------------------
-insert(Path, Value, #routing_tree{tree = T, options = Options}) ->
-    insert(Path, <<>>, Value, T, Options).
-
-insert(Path, _Acc, Value, #node{children = Children}, _Options) when not is_binary(Path) ->
-    case lists:keyfind(Path, #node.path, Children) of
+lookup(Host, Path, Comparator, #host_tree{hosts = Hosts}) ->
+    case lists:keyfind(Host, 1, Hosts) of
         false ->
-            #node{path = Path,
-                  value = [Value]};
-        _ ->
-            {warning, route_already_defined}
+            {error, not_found};
+        {_, #routing_tree{tree = Tree}} ->
+            lookup_path(Path, Comparator, Tree, {#{}, undefined})
+    end.
+
+lookup_path([], Comparator, _, {Bindings, Node}) ->
+    case find_comparator(Comparator, Node#node.value) of
+        {ok, #node_comp{value = Value}} ->
+            {ok, Bindings, Value};
+        Error ->
+            Error
     end;
-insert(<<>>, Acc, Value, #node{children = Children}, _Options) ->
-    case lists:keyfind(Acc, #node.path, Children) of
+lookup_path([Segment|Tl], Comparator, Tree, {Bindings, _}) ->
+    case lists:keyfind(Segment, #node.segment, Tree) of
         false ->
-            #node{path = Acc,
-                  value = [Value]};
-        Result ->
-            %% We need to check all the methods of the results with all the methods given my this path
-            case find_method(Value#node_value.method, [Result]) of
-                {error, not_found} ->
-                    Result#node{value = [Value|Result#node.value]};
-                _Node ->
-                    %% We have a conflict
-                    {error, duplicated_paths}
-            end
-    end;
-insert(<<$/, Rest/binary>>, <<>>, Value, PrevNode, Options) ->
-    %% Ignore since this was either the root or a double /
-    insert(Rest, <<>>, Value, PrevNode, Options);
-insert(<<$/, Rest/binary>>, Acc, Value, #node{children = Children}, Options) ->
-    case has_bindings(Children) of
-        false ->
-            case lists:keyfind(Acc, #node.path, Children) of
+            %% We need to check for potential bindings and/or wildcards
+            case lists:keyfind(true, #node.is_binding, Tree) of
                 false ->
-                    #node{path = Acc,
-                          children = [insert(Rest, <<>>, Value, new(), Options)]};
-                Subtree ->
-                    %% Already exist so just go down in tree
-                    Child = insert(Rest, <<>>, Value, Subtree, Options),
-                    Subtree#node{children = [Child|without_child(Child, Subtree#node.children)]}
+                    {error, not_found};
+                #node{segment = Ident, children = Children} = N ->
+                    %% This is a bit special since we need to bind the values to this and continue
+                    lookup_path(Tl, Comparator, Children, {Bindings#{Ident => Segment}, N})
+            end;
+        Node ->
+            lookup_path(Tl, Comparator, Node#node.children, {Bindings, Node})
+    end.
+
+
+insert(Host, Path, Comparator, Value, #host_tree{hosts = Hosts, options = Options} = HT) ->
+    Tokens = case routing_tree_leex:string(Path) of
+                 {ok, Tokens0, _} ->
+                     Tokens0;
+                 {error, {_Line, _Mod, {user, {Error, Msg}}}, _} ->
+                     throw({Error, Msg})
+             end,
+    SyntaxTree = case routing_tree_parser:parse(Tokens) of
+                     {ok, STree} ->
+                         STree;
+                     {error, {_Line0, _Mod0, Message}} ->
+                         throw({bad_routingfile, lists:concat(Message)})
+                 end,
+    CompNode = #node_comp{comparator = Comparator,
+                          value = Value},
+    RT =
+        case lists:keyfind(Host, 1, Hosts) of
+            false -> #routing_tree{};
+            {_, RoutingTree} -> RoutingTree
+        end,
+    RT0 = RT#routing_tree{tree = insert(SyntaxTree, CompNode, RT#routing_tree.tree, Options)},
+    HT#host_tree{hosts = [{Host, RT0}|lists:keydelete(Host, 1, Hosts)]}.
+
+insert([], _CompNode, Tree,  _Options) -> Tree;
+insert([{Type, _, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseStrict}) ->
+    case UseStrict of
+        true ->
+            case check_conflicting_nodes(Type, value(Ident, Options), Tl, CompNode, Siblings) of
+                {conflict, Nodes} ->
+                    throw({non_deterministic_paths, {Ident, CompNode}, Nodes});
+                {duplicate, Nodes} ->
+                    throw({duplicated_paths, {Ident, CompNode}, Nodes});
+                false ->
+                    %% Continue
+                    ok
             end;
         _ ->
-            {warning, binding_overlapping_route}
-    end;
-insert(<<$:, Rest/binary>>, _Acc, Value, #node{children = Children}, Options) ->
-    %% No worries here, just continue
-    case parse_binding(Rest, <<>>) of
-        {Binding, <<>>} ->
-            case lists:search(fun(#node{path = Key, is_binding = true}) when Key =:= Binding -> true;
-                                 (_) -> false end, Children) of
-                false ->
-                    #node{path = Binding,
-                          is_binding = true,
-                          value = [Value]};
-                {value, Element} ->
-                    Element#node{is_binding = true,
-                                 value = [Value|Element#node.value]}
+            ok
+    end,
+
+    case lists:keyfind(value(Ident, Options), #node.segment, Siblings) of
+        false ->
+            %% Nothing found - Just add the tree
+            case Tl of
+                [] ->
+                    [#node{segment = value(Ident, Options), is_binding = Type == binding, is_wildcard = Type == wildcard,
+                           value = [CompNode]} | Siblings];
+                _ ->
+                    [#node{segment = value(Ident, Options), is_binding = Type == binding, is_wildcard = Type == wildcard,
+                           children = insert(Tl, CompNode, [], Options)} | Siblings]
             end;
-        {Binding, Rest0} ->
-            case lists:search(fun(#node{path = Key, is_binding = true}) when Key =:= Binding -> true;
-                                 (_) -> false end, Children) of
-                false ->
-                    #node{path = Binding,
-                          is_binding = true,
-                          children = [insert(Rest0, <<>>, Value, new(), Options)]};
-                {value, Element} ->
-                    Child = insert(Rest0, <<>>, Value, Element, Options),
-                    Element#node{path = Binding, is_binding = true, children = [Child|without_child(Child, Element#node.children)]}
+        Node ->
+            case Tl of
+                [] ->
+                    case find_comparator(CompNode#node_comp.comparator, Node#node.value) of
+                        {error, not_found} ->
+                            [Node#node{value = [CompNode|Node#node.value], is_binding = Type == binding,
+                                       is_wildcard = Type == wildcard} | lists:delete(Node, Siblings)];
+                        {ok, _NodeComp} ->
+                            %% Warn if we're in non-strict mode or exit if we are
+                            case maps:get(use_strict, Options, false) of
+                                false ->
+                                    %% Do nothing - Should we overwrite?
+                                    Siblings;
+                                _ ->
+                                    throw({duplicated_paths})
+                            end
+                    end;
+                _ ->
+                    [Node#node{children = insert(Tl, CompNode, Node#node.children, Options),
+                               is_binding = Type == binding, is_wildcard = Type == wildcard} | lists:delete(Node, Siblings)]
             end
-    end;
-insert(<<$[, $., $., $., $]>>, _Acc, Value, _PrevNode, _Options) ->
-    %% This is a catch-all-route - snould be the last thing in a route
-    #node{path = '_', is_binding = false, value = [Value]};
-insert(<<X, Rest/bits>>, Acc, Value, PrevNode, Options) ->
-    insert(Rest, <<Acc/binary, X>>, Value, PrevNode, Options).
+    end.
 
 
-%%%%%%%%%%%%%%%%%%%%%%%
-%% PRIVATE FUNCTIONS %%
-%%%%%%%%%%%%%%%%%%%%%%%
+%% PRIVATE
+find_comparator(_, []) -> {error, not_found};
+find_comparator(Comparator, [#node_comp{comparator = Comparator}=Node|_Tl]) ->
+    {ok, Node};
+find_comparator(Comparator, [_Node|Tl]) ->
+    find_comparator(Comparator, Tl).
+
+check_conflicting_nodes(_, _, _, _, []) -> false;
+check_conflicting_nodes(segment, Ident, _Tl, CompNode, Siblings) ->
+    first(fun(#node{value = Value, segment = Segment, is_binding = false, is_wildcard = false} = Node) ->
+                  {[ C || #node_comp{comparator = C} <- Value,
+                          C == CompNode#node_comp.comparator ] /= [] andalso Segment == Ident, {duplicate, Node}};
+             (#node{is_binding = true} = Node) ->
+                  {true, {conflict, Node}};
+             (#node{is_wildcard = true} = Node) ->
+                  {true, {conflict, Node}}
+          end, Siblings);
+check_conflicting_nodes(binding, Ident, _Tl, CompNode, Siblings) ->
+    first(fun(#node{is_binding = true, value = Value, segment = Segment}) -> Segment == Ident andalso
+                                                                                 [ X || #node_comp{comparator = C, value = X} <- Value,
+                                                                                        C == CompNode#node_comp.comparator ] /= [];
+             (#node{is_wildcard = true}) -> true;
+             (#node{value = Value} = Node) ->
+                  {[ X || #node_comp{comparator = C, value = X} <- Value, C == CompNode#node_comp.comparator ] /= [], {conflict, Node}}
+          end, Siblings);
+check_conflicting_nodes(_, _, _, _, _) -> false.
 
 
-has_bindings([]) -> false;
-has_bindings([#node{is_binding = true}|_Tl]) -> true;
-has_bindings([_|Tl]) -> has_bindings(Tl).
 
-find_node(_, _, [], []) -> {error, {not_found, path}};
-find_node(_, _, [], Binding) -> {ok, binding, Binding};
-find_node(Key, false, [#node{is_binding = true} = N|Children], _Binding) ->
-    find_node(Key, false, Children, {N, undefined});
-find_node(Key, Method, [#node{path = '_', value = Values}|Children], Binding) ->
-    case find_method(Method, Values) of
-        {error, not_found} -> find_node(Key, Method, Children, Binding);
-        {Node, Value} -> {ok, wildcard, {Node, Value}}
-    end;
-find_node(Key, Method, [#node{is_binding = true, value = Values}|Children], Binding) ->
-    case find_method(Method, Values) of
-        {error, not_found} -> find_node(Key, Method, Children, Binding);
-        {Node, Value} -> find_node(Key, Method, Children, {Node, Value})
-    end;
-find_node(Key, false, [#node{path = Key} = N|_Children], _Binding) ->
-    {ok, path, {N, undefined}};
-find_node(Key, Method, [#node{path = Key, value = Values}|_Children], _Binding) ->
-    case find_method(Method, Values) of
-        {error, not_found} -> {error, {not_found, method}};
-        {Node, Value} -> {ok, path, {Node, Value}}
-    end;
-find_node(Key, Method, [_Hd|Tl], Bindings) ->
-    find_node(Key, Method, Tl, Bindings).
+first(_Fun, []) -> false;
+first(Fun, [Elem|Tl]) ->
+    case Fun(Elem) of
+        {true, Res} -> Res;
+        _ -> first(Fun, Tl)
+    end.
 
-find_method(_Method, []) -> {error, not_found};
-find_method('_', [Elem|_Tl]) ->
-    {undefined, Elem};
-find_method(Method, [#node_value{method = Method} = Value|_Tl]) ->
-    {undefined, Value};
-find_method(_, [#node_value{method = '_'} = Value|_Tl]) ->
-    {undefined, Value};
-find_method(Method, [_|Tl]) ->
-    find_method(Method, Tl).
+value(Value, #{convert_to_binary := true}) when is_list(Value) ->
+    erlang:list_to_binary(Value);
+value(Value, _) ->
+    Value.
+
+-ifdef(TEST).
+-compile(export_all).
+
+-include_lib("eunit/include/eunit.hrl").
+
+insert_simple_test() ->
+    A = new(),
+    B = insert('_', "/my/profile/picture", "GET", "ONE", A),
+    C = insert('_', "/my/inbox/:message", "POST", "TWO", B),
+    D = insert('_', "/my/inbox/:message", "GET", "THREE", C),
+    E = insert('_', "/my/inbox", "GET", "FOUR", D),
+    Expected = #host_tree{hosts = [{'_', #routing_tree{tree =
+                                                           [#node{segment = "my",value = [],
+                                                                  children = [#node{segment = "inbox",
+                                                                                    value = [#node_comp{comparator = "GET",value = "FOUR"}],
+                                                                                    children = [#node{segment = "message",
+                                                                                                      value = [#node_comp{comparator = "GET",value = "THREE"},
+                                                                                                               #node_comp{comparator = "POST",value = "TWO"}],
+                                                                                                      children = [],is_binding = true,is_wildcard = false}],
+                                                                                    is_binding = false,is_wildcard = false},
+                                                                              #node{segment = "profile",value = [],
+                                                                                    children = [#node{segment = "picture",
+                                                                                                      value = [#node_comp{comparator = "GET",value = "ONE"}],
+                                                                                                      children = [],is_binding = false,is_wildcard = false}],
+                                                                                    is_binding = false,is_wildcard = false}],
+                                                                  is_binding = false,is_wildcard = false}]}}]},
+    ?assertEqual(Expected, E).
+
+insert_complex_test() ->
+    A = new(),
+    B = insert('_', "/profile/:id/picture", "GET", "ONE", A),
+    C = insert('_', "/profile/:id", "GET", "TWO", B),
+    D = insert('_', "/profile/:id", "POST", "THREE", C),
+    Expected = #host_tree{hosts = [{'_',#routing_tree{tree = [#node{segment = "profile",value = [],
+                                                                    children = [#node{segment = "id",
+                                                                                      value = [#node_comp{comparator = "POST",value = "THREE"},
+                                                                                               #node_comp{comparator = "GET",value = "TWO"}],
+                                                                                      children = [#node{segment = "picture",
+                                                                                                        value = [#node_comp{comparator = "GET",value = "ONE"}],
+                                                                                                        children = [],is_binding = false,is_wildcard = false}],
+                                                                                      is_binding = true,is_wildcard = false}],
+                                                                    is_binding = false,is_wildcard = false}]}}],
+                          options = #{convert_to_binary => false, use_strict => false}},
+    ?assertEqual(Expected, D).
+
+%% Expected to throw an exception since we are using strict mode
+insert_duplicate_paths_throw_test() ->
+    A = new(#{use_strict => true}),
+    B = insert('_', "/profile", "GET", "ONE", A),
+    ?assertException(throw, {duplicated_paths, _PathInfo, _Nodes}, insert('_', "/profile", "GET", "TWO", B)).
 
 
-without_child(_Node, []) -> [];
-without_child(#node{path = Key}, [#node{path = Key}|Children]) ->
-    Children;
-without_child(Node, [Hd|Tl]) ->
-    [Hd|without_child(Node, Tl)].
+%% Expected the first route to stay the same - not overwriting.
+insert_duplicate_paths_test() ->
+    A = new(),
+    B = insert('_', "/profile", "GET", "ONE", A),
+    C = insert('_', "/profile", "GET", "TWO", B),
+    Expected = #host_tree{hosts = [{'_', #routing_tree{tree = [#node{segment = "profile", value = [#node_comp{comparator = "GET", value = "ONE"}],
+                                                                     children = []}]}}]},
+    ?assertEqual(Expected, C).
+
+insert_non_deterministic_path_test() ->
+    A = new(#{use_strict => true}),
+    B = insert('_', "/my/inbox/:message", "GET", "ONE", A),
+    ?assertException(throw, {non_deterministic_paths, _PathInfo, _Node}, insert('_', "/my/inbox/1", "GET", "TWO", B)).
+
+insert_non_deterministic_path2_test() ->
+    A = new(#{use_strict => true}),
+    B = insert('_', "/my/inbox/1", "GET", "ONE", A),
+    ?assertException(throw, {non_deterministic_paths, _PathInfo, _Node}, insert('_', "/my/inbox/:message", "GET", "TWO", B)).
+
+insert_wildcard_path_test() ->
+    A = new(),
+    B = insert('_', "/my/assets/[...]", "GET", "ONE", A),
+    Expected = #host_tree{hosts = [{'_',#routing_tree{tree = [#node{segment = "my",
+                                                                    value = [],
+                                                                    children = [#node{segment = "assets",value = [],
+                                                                                      children = [#node{segment = '...',
+                                                                                                        value = [#node_comp{comparator = "GET",value = "ONE"}],
+                                                                                                        children = [],is_binding = false,is_wildcard = true}],
+                                                                                      is_binding = false,is_wildcard = false}],
+                                                                    is_binding = false,is_wildcard = false}]}}],
+                          options = #{use_strict => false, convert_to_binary => false}},
+    ?assertEqual(Expected, B).
+
+insert_wildcard_path_fail_test() ->
+    ?assertException(throw, {bad_routingfile, _ErrorMsg}, insert('_', "/my/assets/[...]/not/working", "GET", "ONE", new())).
+
+insert_disallowed_characters_test() ->
+    ?assertException(throw, {unknown_symbol, "å"}, insert('_', "/my/åäö", "GET", "ONE", new())).
+
+insert_binary_path_test() ->
+    A = new(#{convert_to_binary => true, use_strict => false}),
+    B = insert('_', "/profile", <<"GET">>, <<"ONE">>, A),
+    Expected = #host_tree{hosts = [{'_',#routing_tree{tree = [#node{segment = <<"profile">>,
+                                                                    value = [#node_comp{comparator = <<"GET">>,
+                                                                                        value = <<"ONE">>}],
+                                                                    children = [],is_binding = false,is_wildcard = false}]}}],
+                          options = #{convert_to_binary => true,use_strict => false}},
+    ?assertEqual(Expected, B).
 
 
-parse_binding(<<>>, Acc) ->
-    {Acc, <<>>};
-parse_binding(<<$/, Rest/bits>>, Acc) ->
-    {Acc, <<Rest/binary>>};
-parse_binding(<<C, Rest/bits>>, Acc) ->
-    parse_binding(Rest, << Acc/binary, C >>).
+
+
+-endif.
