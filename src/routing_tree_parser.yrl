@@ -17,6 +17,8 @@ optional_segment ->
     'divider' 'optional_left' basic_element 'optional_right' optional_segment: [optional('$3')|'$5'].
 
 path_segment ->
+    'divider': [{'segment', 1, ""}].
+path_segment ->
     'divider' 'wildcard': ['$2'].
 path_segment ->
     optional_segment: '$1'.

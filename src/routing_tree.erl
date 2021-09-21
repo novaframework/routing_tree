@@ -8,21 +8,39 @@
 
 -include("../include/routing_tree.hrl").
 
+-spec new() -> #host_tree{}.
 new() ->
     #host_tree{}.
 
+-spec new(Options :: options()) -> #host_tree{}.
 new(Options) ->
-    #host_tree{options = Options}.
+    #host_tree{options = #{use_strict => maps:get(use_strict, Options, false),
+                           convert_to_binary => maps:get(convert_to_binary, Options, false)}}.
 
-
+-spec lookup(Host :: binary() | '_', Path :: list() | integer(), Comparator :: any(), #host_tree{}) -> {ok, Bindings :: map(), Value :: any()} |
+                                                                                                       {error, Reason :: term()} |
+                                                                                                       {error, Type :: term(), Reason :: term()}.
+lookup(Host, Path, Comparator, Hosts) when is_integer(Path) ->
+    lookup(Host, [Path], Comparator, Hosts);
 lookup(Host, Path, Comparator, #host_tree{hosts = Hosts}) ->
     case lists:keyfind(Host, 1, Hosts) of
         false ->
-            {error, not_found};
+            case lists:keyfind('_', 1, Hosts) of
+                false ->
+                    {error, not_found};
+                {_, #routing_tree{tree = Tree}} ->
+                    lookup_path(Path, Comparator, Tree, {#{}, undefined})
+            end;
         {_, #routing_tree{tree = Tree}} ->
             lookup_path(Path, Comparator, Tree, {#{}, undefined})
     end.
 
+-spec lookup_path([Segments :: list()], Comparator :: any(), Tree :: [#node{}], {Bindings :: map(), Node :: #node{}}) ->
+                         {ok, Bindings :: map(), Value :: any()} |
+                         {error, not_found} |
+                         {error, Type :: term(), Reason :: term()}.
+lookup_path([], _Comparator, _, {_, undefined}) ->
+    {error, not_found};
 lookup_path([], Comparator, _, {Bindings, Node}) ->
     case find_comparator(Comparator, Node#node.value) of
         {ok, #node_comp{value = Value}} ->
@@ -46,6 +64,23 @@ lookup_path([Segment|Tl], Comparator, Tree, {Bindings, _}) ->
     end.
 
 
+-spec insert(Host :: any(), Path :: list() | integer(), Comparator :: any(), Value :: any(), HT :: #host_tree{}) -> #host_tree{}.
+insert(Host, StatusCode, _Comparator, Value, #host_tree{hosts = Hosts} = HT) when is_integer(StatusCode) ->
+    %% We don't need to tokenize since it's a integer
+    RT =
+        case lists:keyfind(Host, 1, Hosts) of
+            false -> #routing_tree{};
+            {_, RoutingTree} -> RoutingTree
+        end,
+    case lists:keyfind(StatusCode, #node.segment, RT#routing_tree.tree) of
+        false ->
+            %% Just append to the tree
+            RT0 = RT#routing_tree{tree = [#node{segment = StatusCode, value = [#node_comp{comparator = '_', value = Value}]}|RT#routing_tree.tree]},
+            HT#host_tree{hosts = [{Host, RT0}|lists:keydelete(Host, 1, Hosts)]};
+        #node{value = _Values} ->
+            %% TODO! Check if there is duplicate comparators or if we can insert this entry
+            HT
+    end;
 insert(Host, Path, Comparator, Value, #host_tree{hosts = Hosts, options = Options} = HT) ->
     Tokens = case routing_tree_leex:string(Path) of
                  {ok, Tokens0, _} ->
@@ -69,6 +104,8 @@ insert(Host, Path, Comparator, Value, #host_tree{hosts = Hosts, options = Option
     RT0 = RT#routing_tree{tree = insert(SyntaxTree, CompNode, RT#routing_tree.tree, Options)},
     HT#host_tree{hosts = [{Host, RT0}|lists:keydelete(Host, 1, Hosts)]}.
 
+-spec insert([{Type :: atom(), Line :: number(), Ident :: list()}], CompNode :: #node_comp{}, Siblings :: [#node{}], Options :: options()) ->
+                    Tree :: [#node{}].
 insert([], _CompNode, Tree,  _Options) -> Tree;
 insert([{Type, _, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseStrict}) ->
     case UseStrict of
@@ -110,8 +147,8 @@ insert([{Type, _, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseS
                                 false ->
                                     %% Do nothing - Should we overwrite?
                                     Siblings;
-                                _ ->
-                                    throw({duplicated_paths})
+                                DupNodes ->
+                                    throw({duplicated_paths, {Ident, CompNode}, DupNodes})
                             end
                     end;
                 _ ->
@@ -121,7 +158,12 @@ insert([{Type, _, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseS
     end.
 
 
-%% PRIVATE
+%%%%%%%%%%%%%%%%%%%%%%%
+%% PRIVATE FUNCTIONS %%
+%%%%%%%%%%%%%%%%%%%%%%%
+
+-spec find_comparator(Comparator :: any(), [#node_comp{}]) -> {ok, Node :: #node_comp{}} |
+                                                              {error, not_found}.
 find_comparator(_, []) -> {error, not_found};
 find_comparator(Comparator, [#node_comp{comparator = Comparator}=Node|_Tl]) ->
     {ok, Node};
@@ -129,10 +171,10 @@ find_comparator(Comparator, [_Node|Tl]) ->
     find_comparator(Comparator, Tl).
 
 check_conflicting_nodes(_, _, _, _, []) -> false;
-check_conflicting_nodes(segment, Ident, _Tl, CompNode, Siblings) ->
+check_conflicting_nodes(segment, Ident, [] = Tl, CompNode, Siblings) ->
     first(fun(#node{value = Value, segment = Segment, is_binding = false, is_wildcard = false} = Node) ->
                   {[ C || #node_comp{comparator = C} <- Value,
-                          C == CompNode#node_comp.comparator ] /= [] andalso Segment == Ident, {duplicate, Node}};
+                          C == CompNode#node_comp.comparator ] /= [] andalso Segment == Ident andalso Tl /= [], {duplicate, Node}};
              (#node{is_binding = true} = Node) ->
                   {true, {conflict, Node}};
              (#node{is_wildcard = true} = Node) ->
@@ -173,22 +215,51 @@ insert_simple_test() ->
     C = insert('_', "/my/inbox/:message", "POST", "TWO", B),
     D = insert('_', "/my/inbox/:message", "GET", "THREE", C),
     E = insert('_', "/my/inbox", "GET", "FOUR", D),
-    Expected = #host_tree{hosts = [{'_', #routing_tree{tree =
-                                                           [#node{segment = "my",value = [],
-                                                                  children = [#node{segment = "inbox",
-                                                                                    value = [#node_comp{comparator = "GET",value = "FOUR"}],
-                                                                                    children = [#node{segment = "message",
-                                                                                                      value = [#node_comp{comparator = "GET",value = "THREE"},
-                                                                                                               #node_comp{comparator = "POST",value = "TWO"}],
-                                                                                                      children = [],is_binding = true,is_wildcard = false}],
-                                                                                    is_binding = false,is_wildcard = false},
-                                                                              #node{segment = "profile",value = [],
-                                                                                    children = [#node{segment = "picture",
-                                                                                                      value = [#node_comp{comparator = "GET",value = "ONE"}],
-                                                                                                      children = [],is_binding = false,is_wildcard = false}],
-                                                                                    is_binding = false,is_wildcard = false}],
-                                                                  is_binding = false,is_wildcard = false}]}}]},
-    ?assertEqual(Expected, E).
+    F = insert('_', "/", "GET", "FIVE", E),
+    Expected = #host_tree{hosts = [{'_',#routing_tree{tree = [#node{segment = [],
+                                                                    value = [#node_comp{comparator = "GET",value = "FIVE"}],
+                                                                    children = [],is_binding = false,is_wildcard = false},
+                                                              #node{segment = "my",value = [],
+                                                                    children = [#node{segment = "inbox",
+                                                                                      value = [#node_comp{comparator = "GET",value = "FOUR"}],
+                                                                                      children = [#node{segment = "message",
+                                                                                                        value = [#node_comp{comparator = "GET",value = "THREE"},
+                                                                                                                 #node_comp{comparator = "POST",value = "TWO"}],
+                                                                                                        children = [],is_binding = true,is_wildcard = false}],
+                                                                                      is_binding = false,is_wildcard = false},
+                                                                                #node{segment = "profile",value = [],
+                                                                                      children = [#node{segment = "picture",
+                                                                                                        value = [#node_comp{comparator = "GET",value = "ONE"}],
+                                                                                                        children = [],is_binding = false,is_wildcard = false}],
+                                                                                      is_binding = false,is_wildcard = false}],
+                                                                    is_binding = false,is_wildcard = false}]}}],
+                          options = #{convert_to_binary => false,use_strict => false}},
+    ?assertEqual(Expected, F).
+
+insert_simple2_test() ->
+    A = new(#{convert_to_binary => true}),
+    B = insert('_', "/inbox", "GET", "ONE", A),
+    C = insert('_', "/inbox/message", "GET", "ONE", B),
+    Expected = #host_tree{hosts = [{'_',#routing_tree{tree = [#node{segment = <<"inbox">>,
+                                                                    value = [#node_comp{comparator = "GET",value = "ONE"}],
+                                                                    children = [#node{segment = <<"message">>,
+                                                                                      value = [#node_comp{comparator = "GET",value = "ONE"}],
+                                                                                      children = [],is_binding = false,is_wildcard = false}],
+                                                                    is_binding = false,is_wildcard = false}]}}],
+                          options = #{convert_to_binary => true,use_strict => false}},
+    ?assertEqual(Expected, C).
+
+insert_wildcard_test() ->
+    A = new(),
+    B = insert('_', "/inbox/[...]", "GET", "ONE", A),
+    Expected = #host_tree{hosts = [{'_',#routing_tree{tree = [#node{segment = "inbox",
+                                                                    value = [],
+                                                                    children = [#node{segment = '...',
+                                                                                      value = [#node_comp{comparator = "GET",value = "ONE"}],
+                                                                                      children = [],is_binding = false,is_wildcard = true}],
+                                                                    is_binding = false,is_wildcard = false}]}}],
+                          options = #{convert_to_binary => false,use_strict => false}},
+    ?assertEqual(Expected, B).
 
 insert_complex_test() ->
     A = new(),
@@ -262,8 +333,6 @@ insert_binary_path_test() ->
                                                                     children = [],is_binding = false,is_wildcard = false}]}}],
                           options = #{convert_to_binary => true,use_strict => false}},
     ?assertEqual(Expected, B).
-
-
 
 
 -endif.
