@@ -8,6 +8,9 @@ Rules.
 \[\.\.\.\]      : {token, {'wildcard', TokenLine, '...'}}.
 \[              : {token, {'optional_left', TokenLine}}.
 \]              : {token, {'optional_right', TokenLine}}.
+\?              : {token, {'query_start', TokenLine}}.
+\&              : {token, {'ampersand', TokenLine}}.
+\=              : {token, {'equals', TokenLine}}.
 {PathSegment}   : {token, {'segment', TokenLine, TokenChars}}.
 .               : {error, {unknown_symbol, TokenChars}}.
 
