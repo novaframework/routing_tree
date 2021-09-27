@@ -29,11 +29,20 @@ lookup(Host, Path, Comparator, #host_tree{hosts = Hosts}) ->
                 false ->
                     {error, not_found};
                 {_, #routing_tree{tree = Tree}} ->
-                    lookup_path(Path, Comparator, Tree, {#{}, undefined})
+                    lookup_path(Path, Comparator, Tree)
             end;
         {_, #routing_tree{tree = Tree}} ->
-            lookup_path(Path, Comparator, Tree, {#{}, undefined})
+            lookup_path(Path, Comparator, Tree)
     end.
+
+-spec lookup_path(Segments :: [string()] | binary(), Comparator :: any(), Tree :: [#node{}]) ->
+                         {ok, Bindings :: map(), Value :: any()} |
+                         {error, not_found} |
+                         {error, Type :: term(), Reason :: term()}.
+lookup_path(Path, Comparator, Tree) when is_binary(Path) ->
+    lookup_binary(Path, Comparator, Tree, {#{}, undefined}, <<>>);
+lookup_path(Path, Comparator, Tree) when is_list(Path) ->
+    lookup_path(Path, Comparator, Tree, {#{}, undefined}).
 
 -spec lookup_path([Segments :: list()], Comparator :: any(), Tree :: [#node{}], {Bindings :: map(), Node :: #node{}}) ->
                          {ok, Bindings :: map(), Value :: any()} |
@@ -63,6 +72,51 @@ lookup_path([Segment|Tl], Comparator, Tree, {Bindings, _}) ->
             lookup_path(Tl, Comparator, Node#node.children, {Bindings, Node})
     end.
 
+
+lookup_binary(<<>>, Comparator, Tree, {Bindings, _Node}, Ack) ->
+    case lookup_segment(Ack, Comparator, Bindings, Tree) of
+        {ok, Bindings0, #node{value = Value}} ->
+            case find_comparator(Comparator, Value) of
+                {ok, #node_comp{value = Value0}} ->
+                    {ok, Bindings0, Value0};
+                Error ->
+                    Error
+            end;
+        Error ->
+            Error
+    end;
+lookup_binary(<<$/, Rest/bits>>, Comparator, Tree, Bindings, <<>>) ->
+    %% Double // - just continue
+    lookup_binary(Rest, Comparator, Tree, Bindings, <<>>);
+lookup_binary(<<$/, Rest/bits>>, Comparator, Tree, {Bindings, _}, Ack) ->
+    case lookup_segment(Ack, Comparator, Bindings, Tree) of
+        {ok, Bindings0, SubNode = #node{children = Children}} ->
+            lookup_binary(Rest, Comparator, Children, {Bindings0, SubNode}, <<>>);
+        Error ->
+            Error
+    end;
+lookup_binary(<<$?, Rest/bits>>, Comparator, Tree, Bindings, Ack) ->
+    %% TODO! Implement query parameters parsing
+    ok;
+lookup_binary(<<$#, Rest/bits>>, Comparator, Tree, Bindings, Ack) ->
+    %% TODO! Implement fragment parsing
+    ok;
+lookup_binary(<<Char, Rest/bits>>, Comparator, Tree, Bindings, Ack) ->
+    lookup_binary(Rest, Comparator, Tree, Bindings, << Ack/binary, Char >>).
+
+
+lookup_segment(Segment, Comparator, Bindings, Tree) ->
+    case lists:keyfind(Segment, #node.segment, Tree) of
+        false ->
+            case lists:keyfind(true, #node.is_binding, Tree) of
+                false ->
+                    {error, not_found};
+                #node{segment = Ident} = N ->
+                    {ok, Bindings#{Ident => Segment}, N}
+            end;
+        Node ->
+            {ok, Bindings, Node}
+    end.
 
 -spec insert(Host :: any(), Path :: list() | integer(), Comparator :: any(), Value :: any(), HT :: #host_tree{}) -> #host_tree{}.
 insert(Host, StatusCode, _Comparator, Value, #host_tree{hosts = Hosts} = HT) when is_integer(StatusCode) ->
@@ -167,6 +221,13 @@ insert([{Type, _, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseS
 find_comparator(_, []) -> {error, not_found};
 find_comparator(Comparator, [#node_comp{comparator = Comparator}=Node|_Tl]) ->
     {ok, Node};
+find_comparator(Comparator, [#node_comp{comparator = '_'}=Node|Tl]) ->
+    case find_comparator(Comparator, Tl) of
+        {ok, Node0} ->
+            {ok, Node0};
+        _ ->
+            {ok, Node}
+    end;
 find_comparator(Comparator, [_Node|Tl]) ->
     find_comparator(Comparator, Tl).
 
@@ -333,6 +394,56 @@ insert_binary_path_test() ->
                                                                     children = [],is_binding = false,is_wildcard = false}]}}],
                           options = #{convert_to_binary => true,use_strict => false}},
     ?assertEqual(Expected, B).
+
+simple_string_list_lookup_test() ->
+    A = new(),
+    B = insert('_', "/my/route", "GET", "ONE", A),
+    C = lookup(<<"My host">>, ["my", "route"], "GET", B),
+    Expected = {ok, #{}, "ONE"},
+    ?assertEqual(Expected, C).
+
+simple_binary_list_lookup_test() ->
+    A = new(#{convert_to_binary => true}),
+    B = insert('_', "/my/route", "GET", "ONE", A),
+    C = lookup(<<"My host">>, [<<"my">>, <<"route">>], "GET", B),
+    Expected = {ok, #{}, "ONE"},
+    ?assertEqual(Expected, C).
+
+
+simple_binary_lookup_test() ->
+    A = new(#{convert_to_binary => true}),
+    B = insert('_', "/my/route", "GET", "ONE", A),
+    C = lookup(<<"My host">>, <<"/my/route">>, "GET", B),
+    Expected = {ok, #{}, "ONE"},
+    ?assertEqual(Expected, C).
+
+
+bindings_binary_lookup_test() ->
+    A = new(#{convert_to_binary => true}),
+    B = insert('_', "/my/:route", "GET", "ONE", A),
+    C = lookup(<<"My host">>, <<"/my/monkey">>, "GET", B),
+    Expected = {ok, #{<<"route">> => <<"monkey">>}, "ONE"},
+    ?assertEqual(Expected, C).
+
+complex_binary_lookup_test() ->
+    A = new(#{convert_to_binary => true}),
+    B = insert('_', "/my/:route", "GET", "ONE", A),
+    C = insert('_', "/my/inbox/:message", "POST", "TWO", B),
+    D = insert('_', "/my/inbox/:message", "GET", "THREE", C),
+    E = insert('_', "/my/inbox", "GET", "FOUR", D),
+    F = insert('_', "/", "GET", "FIVE", E),
+
+    G = lookup(<<"My host">>, <<"/my/inbox/hello">>, "GET", F),
+    Expected = {ok, #{<<"message">> => <<"hello">>}, "THREE"},
+    ?assertEqual(Expected, G).
+
+comparator_binary_lookup_test() ->
+    A = new(#{convert_to_binary => true}),
+    B = insert('_', "/my/route", '_', "ONE", A),
+    C = lookup(<<"My host">>, <<"/my/route">>, "PUT", B),
+    Expected = {ok, #{}, "ONE"},
+    ?assertEqual(Expected, C).
+
 
 
 -endif.
