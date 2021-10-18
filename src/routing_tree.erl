@@ -8,6 +8,11 @@
 
 -include("../include/routing_tree.hrl").
 
+
+%%========================================
+%% API
+%%========================================
+
 -spec new() -> #host_tree{}.
 new() ->
     #host_tree{}.
@@ -18,6 +23,7 @@ new(Options) ->
                            convert_to_binary => maps:get(convert_to_binary, Options, false)}}.
 
 -spec lookup(Host :: binary() | '_', Path :: list() | integer(), Comparator :: any(), #host_tree{}) -> {ok, Bindings :: map(), Value :: any()} |
+                                                                                                       {ok, Bindings :: map(), Value :: any(), PathInfo :: [binary()]} |
                                                                                                        {error, Reason :: term()} |
                                                                                                        {error, Type :: term(), Reason :: term()}.
 lookup(Host, Path, Comparator, Hosts) when is_integer(Path) ->
@@ -58,27 +64,26 @@ lookup_path([], Comparator, _, {Bindings, Node}) ->
             Error
     end;
 lookup_path([Segment|Tl], Comparator, Tree, {Bindings, _}) ->
-    case lists:keyfind(Segment, #node.segment, Tree) of
-        false ->
-            %% We need to check for potential bindings and/or wildcards
-            case lists:keyfind(true, #node.is_binding, Tree) of
-                false ->
-                    {error, not_found};
-                #node{segment = Ident, children = Children} = N ->
-                    %% This is a bit special since we need to bind the values to this and continue
-                    lookup_path(Tl, Comparator, Children, {Bindings#{Ident => Segment}, N})
-            end;
-        Node ->
-            lookup_path(Tl, Comparator, Node#node.children, {Bindings, Node})
+    case lookup_segment(Segment, Bindings, Tree) of
+        {error, not_found} ->
+            {error, not_found};
+        {ok, Bindings0, #node{children = Children} = N} ->
+            %% This is a bit special since we need to bind the values to this and continue
+            lookup_path(Tl, Comparator, Children, {Bindings0, N})
     end.
 
 
 lookup_binary(<<>>, Comparator, Tree, {Bindings, _Node}, Ack) ->
-    case lookup_segment(Ack, Comparator, Bindings, Tree) of
-        {ok, Bindings0, #node{value = Value}} ->
+    case lookup_segment(Ack, Bindings, Tree) of
+        {ok, Bindings0, #node{is_wildcard = Wildcard, value = Value}} ->
             case find_comparator(Comparator, Value) of
                 {ok, #node_comp{value = Value0}} ->
-                    {ok, Bindings0, Value0};
+                    case Wildcard of
+                        false ->
+                            {ok, Bindings0, Value0};
+                        _ ->
+                            {ok, Bindings0, Value0, [Ack]}
+                    end;
                 Error ->
                     Error
             end;
@@ -89,34 +94,32 @@ lookup_binary(<<$/, Rest/bits>>, Comparator, Tree, Bindings, <<>>) ->
     %% Double // - just continue
     lookup_binary(Rest, Comparator, Tree, Bindings, <<>>);
 lookup_binary(<<$/, Rest/bits>>, Comparator, Tree, {Bindings, _}, Ack) ->
-    case lookup_segment(Ack, Comparator, Bindings, Tree) of
+    case lookup_segment(Ack, Bindings, Tree) of
+        {ok, Bindings0, #node{is_wildcard = true, value = Value}} ->
+            %% We need to handle this special case
+            case find_comparator(Comparator, Value) of
+                {ok, #node_comp{value = Value0}} ->
+                    Tokens = binary:split(Rest, <<"/">>, [global, trim_all]),
+                    {ok, Bindings0, Value0, [Ack | Tokens]};
+                _ ->
+                    {error, not_found}
+            end;
         {ok, Bindings0, SubNode = #node{children = Children}} ->
             lookup_binary(Rest, Comparator, Children, {Bindings0, SubNode}, <<>>);
         Error ->
             Error
     end;
-lookup_binary(<<$?, Rest/bits>>, Comparator, Tree, Bindings, Ack) ->
+lookup_binary(<<$?, _Rest/bits>>, Comparator, Tree, Bindings, Ack) ->
     %% TODO! Implement query parameters parsing
-    ok;
-lookup_binary(<<$#, Rest/bits>>, Comparator, Tree, Bindings, Ack) ->
+    lookup_binary(<<>>, Comparator, Tree, Bindings, Ack);
+lookup_binary(<<$#, _Rest/bits>>, Comparator, Tree, Bindings, Ack) ->
     %% TODO! Implement fragment parsing
-    ok;
+    lookup_binary(<<>>, Comparator, Tree, Bindings, Ack);
 lookup_binary(<<Char, Rest/bits>>, Comparator, Tree, Bindings, Ack) ->
     lookup_binary(Rest, Comparator, Tree, Bindings, << Ack/binary, Char >>).
 
 
-lookup_segment(Segment, Comparator, Bindings, Tree) ->
-    case lists:keyfind(Segment, #node.segment, Tree) of
-        false ->
-            case lists:keyfind(true, #node.is_binding, Tree) of
-                false ->
-                    {error, not_found};
-                #node{segment = Ident} = N ->
-                    {ok, Bindings#{Ident => Segment}, N}
-            end;
-        Node ->
-            {ok, Bindings, Node}
-    end.
+
 
 -spec insert(Host :: any(), Path :: list() | integer(), Comparator :: any(), Value :: any(), HT :: #host_tree{}) -> #host_tree{}.
 insert(Host, StatusCode, _Comparator, Value, #host_tree{hosts = Hosts} = HT) when is_integer(StatusCode) ->
@@ -212,9 +215,28 @@ insert([{Type, _, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseS
     end.
 
 
-%%%%%%%%%%%%%%%%%%%%%%%
-%% PRIVATE FUNCTIONS %%
-%%%%%%%%%%%%%%%%%%%%%%%
+%%========================================
+%% Private functions
+%%========================================
+
+
+lookup_segment(Segment, Bindings, Tree) ->
+    lookup_segment(Segment, Bindings, Tree, undefined).
+
+lookup_segment(_Ident, _Bindings, [], undefined) ->
+    {error, not_found};
+lookup_segment(_Ident, Bindings, [], WCNode) ->
+    {ok, Bindings, WCNode};
+lookup_segment(Ident, Bindings, [#node{segment = Ident, is_binding = false,
+                                                    is_wildcard = false} = N|_Tl], _WCNode) ->
+    {ok, Bindings, N};
+lookup_segment(Ident, Bindings, [#node{segment = Segment, is_binding = true} = N|_Tl], _WCNode) ->
+    {ok, Bindings#{Segment => Ident}, N};
+lookup_segment(Ident, Bindings, [#node{is_wildcard = true} = N|Tl], _WCNode) ->
+    lookup_segment(Ident, Bindings, Tl, N);
+lookup_segment(Ident, Bindings, [_Hd|Tl], WCNode) ->
+    lookup_segment(Ident, Bindings, Tl, WCNode).
+
 
 -spec find_comparator(Comparator :: any(), [#node_comp{}]) -> {ok, Node :: #node_comp{}} |
                                                               {error, not_found}.
@@ -265,6 +287,10 @@ value(Value, #{convert_to_binary := true}) when is_list(Value) ->
 value(Value, _) ->
     Value.
 
+
+%%========================================
+%% EUnit tests
+%%========================================
 -ifdef(TEST).
 -compile(export_all).
 
@@ -443,6 +469,15 @@ comparator_binary_lookup_test() ->
     C = lookup(<<"My host">>, <<"/my/route">>, "PUT", B),
     Expected = {ok, #{}, "ONE"},
     ?assertEqual(Expected, C).
+
+
+wildcard_binary_lookup_test() ->
+    A = new(#{convert_to_binary => true}),
+    B = insert('_', "/my/route/[...]", '_', "ONE", A),
+    C = lookup(<<"My host">>, <<"/my/route/is/amazing">>, "PUT", B),
+    Expected = {ok, #{}, "ONE", [<<"is">>, <<"amazing">>]},
+    ?assertEqual(Expected, C).
+
 
 
 
