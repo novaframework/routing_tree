@@ -11,6 +11,7 @@ Rules.
 \?              : {token, {'query_start', TokenLine}}.
 \&              : {token, {'ampersand', TokenLine}}.
 \=              : {token, {'equals', TokenLine}}.
+\#              : {token, {'fragment', TokenLine}}.
 {PathSegment}   : {token, {'segment', TokenLine, TokenChars}}.
 .               : {error, {unknown_symbol, TokenChars}}.
 
