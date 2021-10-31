@@ -1,7 +1,8 @@
 %% Method, Module, Function-record
 -type options() :: #{
-                                  use_strict := boolean()
-                                 }.
+                     use_strict := boolean(),
+                     convert_to_binary := boolean()
+                    }.
 -export_type([options/0]).
 
 -record(node_comp, {
