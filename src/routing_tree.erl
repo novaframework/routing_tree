@@ -50,8 +50,7 @@ lookup_path(Path, Comparator, Tree) when is_list(Path) ->
 
 -spec lookup_path([Segments :: list()], Comparator :: any(), Tree :: [#node{}], {Bindings :: map(), Node :: #node{} | undefined}) ->
                          {ok, Bindings :: map(), Value :: any()} |
-                         {error, not_found} |
-                         {error, Type :: term(), Reason :: term()}.
+                         {error, not_found}.
 lookup_path([], _Comparator, _, {_, undefined}) ->
     {error, not_found};
 lookup_path([], Comparator, _, {Bindings, Node}) ->
