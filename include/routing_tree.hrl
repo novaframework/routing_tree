@@ -1,7 +1,8 @@
 %% Method, Module, Function-record
 -type options() :: #{
-                                  use_strict := boolean()
-                                 }.
+                     use_strict := boolean(),
+                     convert_to_binary := boolean()
+                    }.
 -export_type([options/0]).
 
 -record(node_comp, {
@@ -10,7 +11,7 @@
                    }).
 
 -record(node, {
-               segment = <<>> :: binary() | '_',
+               segment = <<>>,
                value = [] :: [#node_comp{}],
                children = [] :: [#node{}],
                is_binding = false :: boolean(), %% Indicates if this path has any bindings (Eg /:binding)
@@ -26,5 +27,5 @@
                     options = #{
                                 use_strict => false,
                                 convert_to_binary => false
-                               } :: options()
+                               }
                    }).
