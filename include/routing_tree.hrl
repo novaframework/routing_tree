@@ -3,6 +3,7 @@
                      use_strict := boolean(),
                      convert_to_binary := boolean()
                     }.
+
 -export_type([options/0]).
 
 -record(node_comp, {
@@ -29,3 +30,6 @@
                                 convert_to_binary => false
                                }
                    }).
+
+-type host_tree() :: #host_tree{}.
+-type routing_tree() :: #routing_tree{}.
