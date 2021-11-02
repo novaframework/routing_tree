@@ -1,8 +1,9 @@
 %% Method, Module, Function-record
 -type options() :: #{
-                                  use_strict := boolean()
-                                 }.
--export_type([options/0]).
+                     use_strict := boolean(),
+                     convert_to_binary := boolean()
+                    }.
+
 
 -record(node_comp, {
                     comparator = '_' :: '_' | binary(),
@@ -10,7 +11,7 @@
                    }).
 
 -record(node, {
-               segment = <<>> :: binary() | '_',
+               segment = <<>>,
                value = [] :: [#node_comp{}],
                children = [] :: [#node{}],
                is_binding = false :: boolean(), %% Indicates if this path has any bindings (Eg /:binding)
@@ -26,5 +27,9 @@
                     options = #{
                                 use_strict => false,
                                 convert_to_binary => false
-                               } :: options()
+                               }
                    }).
+
+-type host_tree() :: #host_tree{}.
+-type routing_tree() :: #routing_tree{}.
+-export_type([options/0, host_tree/0, routing_tree/0]).
