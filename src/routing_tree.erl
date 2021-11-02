@@ -22,7 +22,7 @@ new(Options) ->
     #host_tree{options = #{use_strict => maps:get(use_strict, Options, false),
                            convert_to_binary => maps:get(convert_to_binary, Options, false)}}.
 
--spec lookup(Host :: binary() | '_', Path :: list() | integer(), Comparator :: any(), #host_tree{}) -> {ok, Bindings :: map(), Value :: any()} |
+-spec lookup(Host :: binary() | '_', Path :: list() | integer() | binary(), Comparator :: any(), #host_tree{}) -> {ok, Bindings :: map(), Value :: any()} |
                                                                                                        {ok, Bindings :: map(), Value :: any(), PathInfo :: [binary()]} |
                                                                                                        {error, Reason :: term()}.
 lookup(Host, Path, Comparator, Hosts) when is_integer(Path) ->
@@ -42,6 +42,7 @@ lookup(Host, Path, Comparator, #host_tree{hosts = Hosts}) ->
 
 -spec lookup_path(Segments :: [string()] | binary(), Comparator :: any(), Tree :: [#node{}]) ->
                          {ok, Bindings :: map(), Value :: any()} |
+                         {ok, Bindings :: map(), Value :: any(), PathInfo :: [binary()]} |
                          {error, not_found}.
 lookup_path(Path, Comparator, Tree) when is_binary(Path) ->
     lookup_binary(Path, Comparator, Tree, {#{}, undefined}, <<>>);
