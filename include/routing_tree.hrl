@@ -4,7 +4,6 @@
                      convert_to_binary := boolean()
                     }.
 
--export_type([options/0]).
 
 -record(node_comp, {
                     comparator = '_' :: '_' | binary(),
@@ -33,3 +32,4 @@
 
 -type host_tree() :: #host_tree{}.
 -type routing_tree() :: #routing_tree{}.
+-export_type([options/0, host_tree/0, routing_tree/0]).
