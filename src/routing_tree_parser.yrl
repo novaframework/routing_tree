@@ -36,6 +36,9 @@ path_segment ->
 path_segment ->
     'divider' basic_element path_segment: ['$2'|'$3'].
 
+%% Remove trailing slash
+url_path ->
+    path_segment 'divider': '$1'.
 url_path ->
     path_segment: '$1'.
 

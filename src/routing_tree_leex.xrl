@@ -1,9 +1,10 @@
 Definitions.
 PathSegment = (_|[a-zA-Z]|[0-9])*
+Divider = (\/)
 
 Rules.
 
-\/              : {token, {'divider', TokenLine}}.
+{Divider}+      : {token, {'divider', TokenLine}}.
 \:{PathSegment} : {token, {'binding', TokenLine, strip(TokenChars)}}.
 \[\.\.\.\]      : {token, {'wildcard', TokenLine, '...'}}.
 \[              : {token, {'optional_left', TokenLine}}.
