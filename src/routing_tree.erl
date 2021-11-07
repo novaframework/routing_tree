@@ -252,26 +252,37 @@ find_comparator(Comparator, [_Node|Tl]) ->
     find_comparator(Comparator, Tl).
 
 check_conflicting_nodes(_, _, _, _, []) -> false;
-check_conflicting_nodes(segment, Ident, [] = Tl, CompNode, Siblings) ->
-    first(fun(#node{value = Value, segment = Segment, is_binding = false, is_wildcard = false} = Node) ->
-                  {[ C || #node_comp{comparator = C} <- Value,
-                          C == CompNode#node_comp.comparator ] /= [] andalso Segment == Ident andalso Tl /= [], {duplicate, Node}};
-             (#node{is_binding = true} = Node) ->
-                  {true, {conflict, Node}};
-             (#node{is_wildcard = true} = Node) ->
-                  {true, {conflict, Node}}
-          end, Siblings);
+check_conflicting_nodes(segment, Ident, [], CompNode, Siblings) ->
+    check_aux(Siblings, CompNode, Ident, segment);
 check_conflicting_nodes(binding, Ident, _Tl, CompNode, Siblings) ->
-    first(fun(#node{is_binding = true, value = Value, segment = Segment}) -> Segment == Ident andalso
-                                                                                 [ X || #node_comp{comparator = C, value = X} <- Value,
-                                                                                        C == CompNode#node_comp.comparator ] /= [];
-             (#node{is_wildcard = true}) -> true;
-             (#node{value = Value} = Node) ->
-                  {[ X || #node_comp{comparator = C, value = X} <- Value, C == CompNode#node_comp.comparator ] /= [], {conflict, Node}}
-          end, Siblings);
+    check_aux(Siblings, CompNode, Ident, binding);
 check_conflicting_nodes(_, _, _, _, _) -> false.
 
+check_aux([], _, _, _) -> false;
+check_aux([Elem|T], CompNode, Ident, binding) ->
+    case check_conflicting_nodes_binding(Elem, CompNode, Ident) of
+        {true, Res} -> Res;
+        _ -> check_aux(T, CompNode, Ident, binding)
+    end;
+check_aux([Elem|T], CompNode, Ident, segment) ->
+    case check_conflicting_nodes_segment(Elem, CompNode, Ident) of
+        {true, Res} -> Res;
+        _ -> check_aux(T, CompNode, Ident, segment)
+    end.
 
+check_conflicting_nodes_segment(#node{value = Value, segment = Segment, is_binding = false, is_wildcard = false} = Node, CompNode, Ident) ->
+    {[ C || #node_comp{comparator = C} <- Value,
+        C == CompNode#node_comp.comparator ] /= [] andalso Segment == Ident, {duplicate, Node}};
+check_conflicting_nodes_segment(#node{is_binding = true} = Node, _, _) -> {true, {conflict, Node}};
+check_conflicting_nodes_segment(#node{is_wildcard = true} = Node, _, _) ->  {true, {conflict, Node}}.
+
+ check_conflicting_nodes_binding(#node{value = Value, segment = Segment} = Node, CompNode, Ident) ->
+    Segment == Ident andalso
+    {[ X || #node_comp{comparator = C, value = X} <- Value,
+        C == CompNode#node_comp.comparator ] /= [], {conflict, Node}};
+check_conflicting_nodes_binding(#node{is_wildcard = true}, _, _) -> true;
+check_conflicting_nodes_binding(#node{value = Value} = Node, CompNode, _) ->
+    {[ X || #node_comp{comparator = C, value = X} <- Value, C == CompNode#node_comp.comparator ] /= [], {conflict, Node}}.
 
 first(_Fun, []) -> false;
 first(Fun, [Elem|Tl]) ->
