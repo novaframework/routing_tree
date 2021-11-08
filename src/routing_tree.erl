@@ -185,6 +185,9 @@ insert([{Type, _, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseS
                 [] ->
                     [#node{segment = value(Ident, Options), is_binding = Type == binding, is_wildcard = Type == wildcard,
                            value = [CompNode]} | Siblings];
+                [{segment, 1, []}] ->
+                    [#node{segment = value(Ident, Options), is_binding = Type == binding, is_wildcard = Type == wildcard,
+                           value = [CompNode]} | Siblings];
                 _ ->
                     [#node{segment = value(Ident, Options), is_binding = Type == binding, is_wildcard = Type == wildcard,
                            children = insert(Tl, CompNode, [], Options)} | Siblings]
