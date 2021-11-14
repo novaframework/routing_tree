@@ -17,3 +17,5 @@ _build
 *.iml
 rebar3.crashdump
 *~
+src/routing_tree_leex.erl
+src/routing_tree_parser.erl
