@@ -71,8 +71,13 @@ lookup_path([Segment|Tl], Comparator, Tree, {Bindings, _}) ->
     end.
 
 
-lookup_binary(<<>>, Comparator, Tree, {Bindings, _Node}, Ack) ->
-    case lookup_segment(Ack, Bindings, Tree) of
+lookup_binary(<<>>, Comparator, Tree, {Bindings, PrevNode}, Ack) ->
+    Node =
+        case Ack of
+            <<>> -> PrevNode;
+            _ -> Ack
+        end,
+    case lookup_segment(Node, Bindings, Tree) of
         {ok, Bindings0, #node{is_wildcard = Wildcard, value = Value}} ->
             case find_comparator(Comparator, Value) of
                 {ok, #node_comp{value = Value0}} ->
@@ -80,7 +85,7 @@ lookup_binary(<<>>, Comparator, Tree, {Bindings, _Node}, Ack) ->
                         false ->
                             {ok, Bindings0, Value0};
                         _ ->
-                            {ok, Bindings0, Value0, [Ack]}
+                            {ok, Bindings0, Value0, [Node]}
                     end;
                 Error ->
                     Error
@@ -279,10 +284,10 @@ check_conflicting_nodes_segment(#node{value = Value, segment = Segment, is_bindi
 check_conflicting_nodes_segment(#node{is_binding = true} = Node, _, _) -> {true, {conflict, Node}};
 check_conflicting_nodes_segment(#node{is_wildcard = true} = Node, _, _) ->  {true, {conflict, Node}}.
 
- check_conflicting_nodes_binding(#node{value = Value, segment = Segment} = Node, CompNode, Ident) ->
+check_conflicting_nodes_binding(#node{value = Value, segment = Segment, is_binding = true} = Node, CompNode, Ident) ->
     Segment == Ident andalso
-    {[ X || #node_comp{comparator = C, value = X} <- Value,
-        C == CompNode#node_comp.comparator ] /= [], {conflict, Node}};
+        {[ X || #node_comp{comparator = C, value = X} <- Value,
+                C == CompNode#node_comp.comparator ] /= [], {conflict, Node}};
 check_conflicting_nodes_binding(#node{is_wildcard = true}, _, _) -> true;
 check_conflicting_nodes_binding(#node{value = Value} = Node, CompNode, _) ->
     {[ X || #node_comp{comparator = C, value = X} <- Value, C == CompNode#node_comp.comparator ] /= [], {conflict, Node}}.
