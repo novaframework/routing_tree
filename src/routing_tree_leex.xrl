@@ -1,14 +1,12 @@
 Definitions.
-PathSegment = (_|[a-zA-Z]|[0-9])*
+PathSegment = (_|-|\.|~|:|/|\[|\]|@|!|\$|\'|\(|\)|\*|\+|,|;|\%|[a-zA-Z]|[0-9])*
 Divider = (\/)
 
 Rules.
 
 {Divider}+      : {token, {'divider', TokenLine}}.
-\:{PathSegment} : {token, {'binding', TokenLine, strip(TokenChars)}}.
 \[\.\.\.\]      : {token, {'wildcard', TokenLine, '...'}}.
-\[              : {token, {'optional_left', TokenLine}}.
-\]              : {token, {'optional_right', TokenLine}}.
+\:{PathSegment} : {token, {'binding', TokenLine, strip(TokenChars)}}.
 \?              : {token, {'query_start', TokenLine}}.
 \&              : {token, {'ampersand', TokenLine}}.
 \=              : {token, {'equals', TokenLine}}.
