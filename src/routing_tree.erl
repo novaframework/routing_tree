@@ -282,7 +282,7 @@ check_conflicting_nodes_segment(#node{value = Value, segment = Segment, is_bindi
     {[ C || #node_comp{comparator = C} <- Value,
         C == CompNode#node_comp.comparator ] /= [] andalso Segment == Ident, {duplicate, Node}};
 check_conflicting_nodes_segment(#node{is_binding = true} = Node, _, _) -> {true, {conflict, Node}};
-check_conflicting_nodes_segment(#node{is_wildcard = true} = Node, _, _) ->  {true, {conflict, Node}}.
+check_conflicting_nodes_segment(#node{is_binding = false, is_wildcard = true} = Node, _, _) ->  {true, {conflict, Node}}.
 
 check_conflicting_nodes_binding(#node{value = Value, segment = Segment, is_binding = true} = Node, CompNode, Ident) ->
     Segment == Ident andalso
@@ -291,13 +291,6 @@ check_conflicting_nodes_binding(#node{value = Value, segment = Segment, is_bindi
 check_conflicting_nodes_binding(#node{is_wildcard = true}, _, _) -> true;
 check_conflicting_nodes_binding(#node{value = Value} = Node, CompNode, _) ->
     {[ X || #node_comp{comparator = C, value = X} <- Value, C == CompNode#node_comp.comparator ] /= [], {conflict, Node}}.
-
-first(_Fun, []) -> false;
-first(Fun, [Elem|Tl]) ->
-    case Fun(Elem) of
-        {true, Res} -> Res;
-        _ -> first(Fun, Tl)
-    end.
 
 value(Value, #{convert_to_binary := true}) when is_list(Value) ->
     erlang:list_to_binary(Value);
