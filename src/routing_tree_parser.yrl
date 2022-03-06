@@ -1,8 +1,8 @@
-Nonterminals url_path path_segment query basic_element.
+Nonterminals path_segment query basic_element.
 
 Terminals 'divider' 'binding' 'wildcard' 'segment' 'query_start' 'ampersand' 'equals'.
 
-Rootsymbol url_path.
+Rootsymbol path_segment.
 
 
 basic_element ->
@@ -25,12 +25,5 @@ path_segment ->
     'divider' basic_element: ['$2'].
 path_segment ->
     'divider' basic_element path_segment: ['$2'|'$3'].
-
-%% Remove trailing slash
-url_path ->
-    path_segment 'divider': '$1'.
-url_path ->
-    path_segment: '$1'.
-
 
 Erlang code.
