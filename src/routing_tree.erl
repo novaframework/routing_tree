@@ -488,6 +488,12 @@ wildcard_binary_lookup_test() ->
     Expected = {ok, #{}, "ONE", [<<"is">>, <<"amazing">>]},
     ?assertEqual(Expected, C).
 
+dash_in_path_test() ->
+    A = new(#{convert_to_binary => true}),
+    B = insert('_', "/my-test-route", "GET", "ONE", A),
+    C = lookup(<<"My host">>, <<"/my-test-route">>, "GET", B),
+    Expected = {ok, #{}, "ONE"},
+    ?assertEqual(Expected, C).
 
 
 
