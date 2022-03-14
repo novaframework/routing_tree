@@ -1,7 +1,6 @@
 %% Method, Module, Function-record
 -type options() :: #{
-                     use_strict := boolean(),
-                     convert_to_binary := boolean()
+                     use_strict := boolean()
                     }.
 
 
@@ -25,8 +24,7 @@
 -record(host_tree, {
                     hosts = [] :: [{Host :: binary() | '_', Tree :: #routing_tree{}}],
                     options = #{
-                                use_strict => false,
-                                convert_to_binary => false
+                                use_strict => false
                                }
                    }).
 
