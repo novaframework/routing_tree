@@ -493,5 +493,21 @@ dash_in_path_test() ->
     ?assertEqual(Expected, C).
 
 
+get_random_string(Length, AllowedChars) ->
+    lists:foldl(fun(_, Acc) ->
+                        [lists:nth(rand:uniform(length(AllowedChars)),
+                                   AllowedChars)]
+                            ++ Acc
+                end, [], lists:seq(1, Length)).
+
+
+insert_10000_inserts_test() ->
+    Paths = [
+             lists:flatten([ erlang:list_to_binary([$/|get_random_string(20, lists:seq($a, $z))]) || _X <- lists:seq(0, 20)]) || _Y <- lists:seq(0, 10000) ],
+
+    ?debugTime("Inserting 10000 paths into same tree", lists:foldl(fun(Path, T) ->
+                                                                          insert('_', Path, "GET", "PAYLOAD", T)
+                                                                  end, new(), Paths)).
+
 
 -endif.
