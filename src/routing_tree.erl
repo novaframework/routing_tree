@@ -70,7 +70,8 @@ lookup_path([Segment|Tl], Comparator, Tree, {Bindings, _}) ->
     end.
 
 
-lookup_binary(<<>>, Comparator, Tree, {Bindings, PrevNode}, Ack) ->
+lookup_binary(Empty, Comparator, Tree, {Bindings, PrevNode}, Ack) when Empty == <<>> orelse
+                                                                       Empty == <<"/">> ->
     Node =
         case Ack of
             <<>> -> PrevNode;
@@ -493,6 +494,16 @@ dash_in_path_test() ->
     ?assertEqual(Expected, C).
 
 
+trailing_slash_test() ->
+    A = new(#{convert_to_binary => true}),
+    B = insert('_', "/my_app/", "GET", "ONE", A),
+    C = lookup(<<"my_host">>, <<"/my_app">>, "GET", B),
+    D = lookup(<<"my_host2">>, <<"/my_app/">>, "GET", B),
+    Expected = {ok, #{}, "ONE"},
+    Expected0 = {ok, #{}, "ONE"},
+    ?assertEqual(Expected, C),
+    ?assertEqual(Expected0, D).
+
 get_random_string(Length, AllowedChars) ->
     lists:foldl(fun(_, Acc) ->
                         [lists:nth(rand:uniform(length(AllowedChars)),
@@ -509,5 +520,11 @@ insert_10000_inserts_test() ->
                                                                           insert('_', Path, "GET", "PAYLOAD", T)
                                                                   end, new(), Paths)).
 
+insert_1000_inserts_test() ->
+    Paths = [
+             lists:flatten([ [$/|get_random_string(20, lists:seq($a, $z))] || _X <- lists:seq(0, 20)]) || _Y <- lists:seq(0, 1000) ],
 
+    ?debugTime("Inserting 1000 paths into same tree", lists:foldl(fun(Path, T) ->
+                                                                          insert('_', Path, "GET", "PAYLOAD", T)
+                                                                  end, new(), Paths)).
 -endif.
