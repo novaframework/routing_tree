@@ -71,8 +71,9 @@ lookup_path([Segment|Tl], Comparator, Tree, {Bindings, _}) ->
     end.
 
 
-lookup_binary(Empty, Comparator, Tree, {Bindings, PrevNode}, Ack) when Empty == <<>> orelse
-                                                                       Empty == <<"/">> ->
+lookup_binary(Empty, Comparator, Tree, {Bindings, PrevNode}, Ack) when Ack /= <<>> andalso
+                                                                       (Empty == <<>> orelse
+                                                                        Empty == <<"/">>) ->
     Node =
         case Ack of
             <<>> -> PrevNode;
