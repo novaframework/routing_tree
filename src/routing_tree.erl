@@ -190,7 +190,7 @@ insert([{Type, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseStri
             ok
     end,
 
-    case lists:keyfind(Ident, #node.segment, Siblings) of
+    case lookup_node(Ident, Options, Siblings) of
         false ->
             %% Nothing found - Just add the tree
             case Tl of
@@ -299,7 +299,13 @@ check_conflicting_nodes_binding(#node{is_wildcard = true}, _, _) -> true;
 check_conflicting_nodes_binding(#node{value = Value} = Node, CompNode, _) ->
     {[ X || #node_comp{comparator = C, value = X} <- Value, C == CompNode#node_comp.comparator ] /= [], {conflict, Node}}.
 
+value(Value, #{convert_to_binary := true}) when is_list(Value) ->
+    erlang:list_to_binary(Value);
+value(Value, _) ->
+    Value.
 
+lookup_node(Ident, Options, Siblings) ->
+    lists:keyfind(value(Ident, Options), #node.segment, Siblings).
 %%========================================
 %% EUnit tests
 %%========================================
