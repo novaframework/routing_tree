@@ -185,7 +185,7 @@ insert([{Type, _, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseS
             ok
     end,
 
-    case lists:keyfind(value(Ident, Options), #node.segment, Siblings) of
+    case lookup_node(Ident, Options, Siblings) of
         false ->
             %% Nothing found - Just add the tree
             case Tl of
@@ -299,7 +299,8 @@ value(Value, #{convert_to_binary := true}) when is_list(Value) ->
 value(Value, _) ->
     Value.
 
-
+lookup_node(Ident, Options, Siblings) ->
+    lists:keyfind(value(Ident, Options), #node.segment, Siblings).
 %%========================================
 %% EUnit tests
 %%========================================
