@@ -206,7 +206,7 @@ insert([{Type, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseStri
             end;
         Node ->
             case Tl of
-                [] ->
+                List when ( List == []) orelse (List == [{segment, 1, []}]) ->
                     case find_comparator(CompNode#node_comp.comparator, Node#node.value) of
                         {error, not_found} ->
                             [Node#node{value = [CompNode|Node#node.value], is_binding = Type == binding,
