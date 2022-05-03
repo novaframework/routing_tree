@@ -70,7 +70,9 @@ lookup_path([Segment|Tl], Comparator, Tree, {Bindings, _}) ->
     end.
 
 
-lookup_binary(<<>>, Comparator, Tree, {Bindings, PrevNode}, Ack) ->
+lookup_binary(Empty, Comparator, Tree, {Bindings, PrevNode}, Ack) when Ack /= <<>> andalso
+                                                                       (Empty == <<>> orelse
+                                                                        Empty == <<"/">>) ->
     Node =
         case Ack of
             <<>> -> PrevNode;
@@ -188,14 +190,14 @@ insert([{Type, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseStri
             ok
     end,
 
-    case lists:keyfind(Ident, #node.segment, Siblings) of
+    case lookup_node(Ident, Options, Siblings) of
         false ->
             %% Nothing found - Just add the tree
             case Tl of
                 [] ->
                     [#node{segment = Ident, is_binding = Type == binding, is_wildcard = Type == wildcard,
                            value = [CompNode]} | Siblings];
-                [{segment, 1, []}] ->
+                [{segment, <<>>}] ->
                     [#node{segment = Ident, is_binding = Type == binding, is_wildcard = Type == wildcard,
                            value = [CompNode]} | Siblings];
                 _ ->
@@ -204,7 +206,7 @@ insert([{Type, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseStri
             end;
         Node ->
             case Tl of
-                [] ->
+                List when ( List == []) orelse (List == [{segment, <<>>}]) ->
                     case find_comparator(CompNode#node_comp.comparator, Node#node.value) of
                         {error, not_found} ->
                             [Node#node{value = [CompNode|Node#node.value], is_binding = Type == binding,
@@ -297,7 +299,13 @@ check_conflicting_nodes_binding(#node{is_wildcard = true}, _, _) -> true;
 check_conflicting_nodes_binding(#node{value = Value} = Node, CompNode, _) ->
     {[ X || #node_comp{comparator = C, value = X} <- Value, C == CompNode#node_comp.comparator ] /= [], {conflict, Node}}.
 
+value(Value, #{convert_to_binary := true}) when is_list(Value) ->
+    erlang:list_to_binary(Value);
+value(Value, _) ->
+    Value.
 
+lookup_node(Ident, Options, Siblings) ->
+    lists:keyfind(value(Ident, Options), #node.segment, Siblings).
 %%========================================
 %% EUnit tests
 %%========================================
@@ -493,6 +501,16 @@ dash_in_path_test() ->
     ?assertEqual(Expected, C).
 
 
+trailing_slash_test() ->
+    A = new(#{convert_to_binary => true}),
+    B = insert('_', "/my_app/", "GET", "ONE", A),
+    C = lookup(<<"my_host">>, <<"/my_app">>, "GET", B),
+    D = lookup(<<"my_host2">>, <<"/my_app/">>, "GET", B),
+    Expected = {ok, #{}, "ONE"},
+    Expected0 = {ok, #{}, "ONE"},
+    ?assertEqual(Expected, C),
+    ?assertEqual(Expected0, D).
+
 get_random_string(Length, AllowedChars) ->
     lists:foldl(fun(_, Acc) ->
                         [lists:nth(rand:uniform(length(AllowedChars)),
@@ -509,5 +527,11 @@ insert_10000_inserts_test() ->
                                                                           insert('_', Path, "GET", "PAYLOAD", T)
                                                                   end, new(), Paths)).
 
+insert_1000_inserts_test() ->
+    Paths = [
+             lists:flatten([ [$/|get_random_string(20, lists:seq($a, $z))] || _X <- lists:seq(0, 20)]) || _Y <- lists:seq(0, 1000) ],
 
+    ?debugTime("Inserting 1000 paths into same tree", lists:foldl(fun(Path, T) ->
+                                                                          insert('_', Path, "GET", "PAYLOAD", T)
+                                                                  end, new(), Paths)).
 -endif.
