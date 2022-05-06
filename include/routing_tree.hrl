@@ -1,5 +1,6 @@
 %% Method, Module, Function-record
 -type options() :: #{
+                     convert_to_binary := boolean(),
                      use_strict := boolean()
                     }.
 
