@@ -1,6 +1,6 @@
 {application, routing_tree,
  [{description, "An OTP application"},
-  {vsn, "1.0.3"},
+  {vsn, "1.0.4"},
   {registered, []},
   {mod, {routing_tree_app, []}},
   {applications,
