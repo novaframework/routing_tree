@@ -69,31 +69,13 @@ lookup_path([Segment|Tl], Comparator, Tree, {Bindings, _}) ->
             lookup_path(Tl, Comparator, Children, {Bindings0, N})
     end.
 
-
-lookup_binary(Empty, Comparator, Tree, {Bindings, PrevNode}, Ack) when Ack /= <<>> andalso
-                                                                       (Empty == <<>> orelse
-                                                                        Empty == <<"/">>) ->
-    Node =
-        case Ack of
-            <<>> -> PrevNode;
-            _ -> Ack
-        end,
-    case lookup_segment(Node, Bindings, Tree) of
-        {ok, Bindings0, #node{is_wildcard = Wildcard, value = Value}} ->
-            case find_comparator(Comparator, Value) of
-                {ok, #node_comp{value = Value0}} ->
-                    case Wildcard of
-                        false ->
-                            {ok, Bindings0, Value0};
-                        _ ->
-                            {ok, Bindings0, Value0, [Node]}
-                    end;
-                Error ->
-                    Error
-            end;
-        Error ->
-            Error
-    end;
+lookup_binary(<<"/">>, Comparator, Tree, {Bindings, undefined}, <<>>) ->
+    lookup_binary(<<>>, Comparator, Tree, {Bindings, <<>>}, <<>>);
+lookup_binary(<<>>, Comparator, Tree, {Bindings, Node}, <<>>) ->
+    lookup_segment_and_find_comparator(Node, Bindings, Tree, Comparator);
+lookup_binary(Empty, Comparator, Tree, {Bindings, _}, Node) when (Empty == <<>> orelse
+                                                                  Empty == <<"/">>) ->
+    lookup_segment_and_find_comparator(Node, Bindings, Tree, Comparator);
 lookup_binary(<<$/, Rest/bits>>, Comparator, Tree, Bindings, <<>>) ->
     %% Double // - just continue
     lookup_binary(Rest, Comparator, Tree, Bindings, <<>>);
@@ -122,7 +104,23 @@ lookup_binary(<<$#, _Rest/bits>>, Comparator, Tree, Bindings, Ack) ->
 lookup_binary(<<Char, Rest/bits>>, Comparator, Tree, Bindings, Ack) ->
     lookup_binary(Rest, Comparator, Tree, Bindings, << Ack/binary, Char >>).
 
-
+lookup_segment_and_find_comparator(Node, Bindings, Tree, Comparator) ->
+    case lookup_segment(Node, Bindings, Tree) of
+        {ok, Bindings0, #node{is_wildcard = Wildcard, value = Value}} ->
+            case find_comparator(Comparator, Value) of
+                {ok, #node_comp{value = Value0}} ->
+                    case Wildcard of
+                        false ->
+                            {ok, Bindings0, Value0};
+                        _ ->
+                            {ok, Bindings0, Value0, [Node]}
+                    end;
+                Error ->
+                    Error
+            end;
+        Error ->
+            Error
+    end.
 
 
 -spec insert(Host :: any(), Path :: string() | binary() | integer(), Comparator :: any(), Value :: any(), HT :: #host_tree{}) -> #host_tree{}.
