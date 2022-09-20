@@ -87,8 +87,8 @@ lookup_binary(<<$/, Rest/bits>>, Comparator, Tree, {Bindings, _}, Ack) ->
                 {ok, #node_comp{value = Value0}} ->
                     Tokens = binary:split(Rest, <<"/">>, [global, trim_all]),
                     {ok, Bindings0, Value0, [Ack | Tokens]};
-                _ ->
-                    {error, not_found}
+                Error ->
+                    Error
             end;
         {ok, Bindings0, SubNode = #node{children = Children}} ->
             lookup_binary(Rest, Comparator, Children, {Bindings0, SubNode}, <<>>);
@@ -206,7 +206,7 @@ insert([{Type, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseStri
             case Tl of
                 List when ( List == []) orelse (List == [{segment, <<>>}]) ->
                     case find_comparator(CompNode#node_comp.comparator, Node#node.value) of
-                        {error, not_found} ->
+                        {error, comparator_not_found} ->
                             [Node#node{value = [CompNode|Node#node.value], is_binding = Type == binding,
                                        is_wildcard = Type == wildcard} | lists:delete(Node, Siblings)];
                         {ok, _NodeComp} ->
@@ -251,7 +251,7 @@ lookup_segment(Ident, Bindings, [_Hd|Tl], WCNode) ->
 
 -spec find_comparator(Comparator :: any(), [#node_comp{}]) -> {ok, Node :: #node_comp{}} |
                                                               {error, not_found}.
-find_comparator(_, []) -> {error, not_found};
+find_comparator(_, []) -> {error, comparator_not_found};
 find_comparator(Comparator, [#node_comp{comparator = Comparator}=Node|_Tl]) ->
     {ok, Node};
 find_comparator(Comparator, [#node_comp{comparator = '_'}=Node|Tl]) ->
