@@ -249,8 +249,9 @@ lookup_segment(Ident, Bindings, [_Hd|Tl], WCNode) ->
     lookup_segment(Ident, Bindings, Tl, WCNode).
 
 
--spec find_comparator(Comparator :: any(), [#node_comp{}]) -> {ok, Node :: #node_comp{}} |
-                                                              {error, not_found}.
+-spec find_comparator(Comparator :: any(), [#node_comp{}]) ->
+          {ok, Node :: #node_comp{}} |
+          {error, comparator_not_found}.
 find_comparator(_, []) -> {error, comparator_not_found};
 find_comparator(Comparator, [#node_comp{comparator = Comparator}=Node|_Tl]) ->
     {ok, Node};
