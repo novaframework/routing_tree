@@ -42,7 +42,7 @@ lookup(Host, Path, Comparator, #host_tree{hosts = Hosts}) ->
 -spec lookup_path(Segments :: [string()] | binary(), Comparator :: any(), Tree :: [#node{}]) ->
                          {ok, Bindings :: map(), Value :: any()} |
                          {ok, Bindings :: map(), Value :: any(), PathInfo :: [binary()]} |
-                         {error, not_found}.
+                         {error, not_found} | {error, comparator_not_found}.
 lookup_path(Path, Comparator, Tree) when is_binary(Path) ->
     lookup_binary(Path, Comparator, Tree, {#{}, undefined}, <<>>);
 lookup_path(Path, Comparator, Tree) when is_list(Path) ->
