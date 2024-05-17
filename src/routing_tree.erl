@@ -53,7 +53,7 @@ lookup_path(Path, Comparator, Tree) when is_list(Path) ->
                          {error, not_found}.
 lookup_path([], _Comparator, _, {_, undefined}) ->
     {error, not_found};
-lookup_path([], Comparator, _, {Bindings, Node}) ->
+lookup_path([], Comparator, Tree, {Bindings, Node}) ->
     case find_comparator(Comparator, Node#node.value) of
         {ok, #node_comp{value = Value}} ->
             {ok, Bindings, Value};
@@ -106,6 +106,19 @@ lookup_binary(<<Char, Rest/bits>>, Comparator, Tree, Bindings, Ack) ->
 
 lookup_segment_and_find_comparator(Node, Bindings, Tree, Comparator) ->
     case lookup_segment(Node, Bindings, Tree) of
+        {ok, Bindings0, #node{value = []}=N} ->
+            %% We need to check if children is wildcard
+            case lists:keyfind(true, #node.is_wildcard, N#node.children) of
+                #node{value = Value0} ->
+                    case find_comparator(Comparator, Value0) of
+                        {ok, #node_comp{value = Value}} ->
+                            {ok, Bindings0, Value};
+                        Error ->
+                            Error
+                    end;
+                _ ->
+                    {error, not_found}
+            end;
         {ok, Bindings0, #node{is_wildcard = Wildcard, value = Value}} ->
             case find_comparator(Comparator, Value) of
                 {ok, #node_comp{value = Value0}} ->
@@ -239,7 +252,7 @@ lookup_segment(_Ident, _Bindings, [], undefined) ->
 lookup_segment(_Ident, Bindings, [], WCNode) ->
     {ok, Bindings, WCNode};
 lookup_segment(Ident, Bindings, [#node{segment = Ident, is_binding = false,
-                                                    is_wildcard = false} = N|_Tl], _WCNode) ->
+                                       is_wildcard = false} = N|_Tl], _WCNode) ->
     {ok, Bindings, N};
 lookup_segment(Ident, Bindings, [#node{segment = Segment, is_binding = true} = N|_Tl], _WCNode) ->
     {ok, Bindings#{Segment => Ident}, N};
@@ -424,6 +437,13 @@ insert_wildcard_path_test() ->
 
 insert_wildcard_path_fail_test() ->
     ?assertException(throw, {bad_routingfile, _ErrorMsg}, insert('_', "/my/assets/[...]/not/working", "GET", "ONE", new())).
+
+insert_wildcard_lookup_without_test() ->
+    A = new(),
+    B = insert('_', "/my/assets/[...]", "GET", "ONE", A),
+    C = lookup(<<"My host">>, <<"/my/assets">>, "GET", B),
+    Expected = {ok, #{}, "ONE"},
+    ?assertEqual(Expected, C).
 
 insert_binary_path_test() ->
     A = new(#{use_strict => false}),
