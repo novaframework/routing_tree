@@ -1,6 +1,6 @@
 {application, routing_tree,
  [{description, "An OTP application"},
-  {vsn, "1.0.6"},
+  {vsn, "1.0.7"},
   {registered, []},
   {mod, {routing_tree_app, []}},
   {applications,
@@ -10,6 +10,6 @@
   {env,[]},
   {modules, []},
 
-  {licenses, ["Apache 2.0"]},
+  {licenses, ["Apache-2.0"]},
   {links, []}
  ]}.
