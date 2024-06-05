@@ -53,7 +53,7 @@ lookup_path(Path, Comparator, Tree) when is_list(Path) ->
                          {error, not_found}.
 lookup_path([], _Comparator, _, {_, undefined}) ->
     {error, not_found};
-lookup_path([], Comparator, Tree, {Bindings, Node}) ->
+lookup_path([], Comparator, _Tree, {Bindings, Node}) ->
     case find_comparator(Comparator, Node#node.value) of
         {ok, #node_comp{value = Value}} ->
             {ok, Bindings, Value};
