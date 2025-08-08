@@ -42,7 +42,7 @@ lookup(Host, Path, Comparator, #host_tree{hosts = Hosts}) ->
 -spec lookup_path(Segments :: [string()] | binary(), Comparator :: any(), Tree :: [#node{}]) ->
                          {ok, Bindings :: map(), Value :: any()} |
                          {ok, Bindings :: map(), Value :: any(), PathInfo :: [binary()]} |
-                         {error, not_found} | {error, comparator_not_found}.
+                         {error, not_found} | {error, comparator_not_found, AllowedMethods :: [binary()]}.
 lookup_path(Path, Comparator, Tree) when is_binary(Path) ->
     lookup_binary(Path, Comparator, Tree, {#{}, undefined}, <<>>);
 lookup_path(Path, Comparator, Tree) when is_list(Path) ->
@@ -219,7 +219,7 @@ insert([{Type, Ident}|Tl], CompNode, Siblings, Options = #{use_strict := UseStri
             case Tl of
                 List when ( List == []) orelse (List == [{segment, <<>>}]) ->
                     case find_comparator(CompNode#node_comp.comparator, Node#node.value) of
-                        {error, comparator_not_found} ->
+                        {error, comparator_not_found, _AllowedMethods} ->
                             [Node#node{value = [CompNode|Node#node.value], is_binding = Type == binding,
                                        is_wildcard = Type == wildcard} | lists:delete(Node, Siblings)];
                         {ok, _NodeComp} ->
@@ -264,19 +264,25 @@ lookup_segment(Ident, Bindings, [_Hd|Tl], WCNode) ->
 
 -spec find_comparator(Comparator :: any(), [#node_comp{}]) ->
           {ok, Node :: #node_comp{}} |
-          {error, comparator_not_found}.
-find_comparator(_, []) -> {error, comparator_not_found};
-find_comparator(Comparator, [#node_comp{comparator = Comparator}=Node|_Tl]) ->
+          {error, comparator_not_found, AllowedMethods :: [binary()]}.
+find_comparator(Comparator, Comparators) ->
+    find_comparator(Comparator, Comparators, []).
+
+-spec find_comparator(Comparator :: any(), [#node_comp{}], AllowedMethods :: [binary()]) ->
+          {ok, Node :: #node_comp{}} |
+          {error, comparator_not_found, AllowedMethods :: [binary()]}.
+find_comparator(_, [], AllowedMethods) -> {error, comparator_not_found, AllowedMethods};
+find_comparator(Comparator, [#node_comp{comparator = Comparator}=Node|_Tl], _AllowedMethods) ->
     {ok, Node};
-find_comparator(Comparator, [#node_comp{comparator = '_'}=Node|Tl]) ->
-    case find_comparator(Comparator, Tl) of
+find_comparator(Comparator, [#node_comp{comparator = '_'}=Node|Tl], AllowedMethods) ->
+    case find_comparator(Comparator, Tl, AllowedMethods) of
         {ok, Node0} ->
             {ok, Node0};
         _ ->
             {ok, Node}
     end;
-find_comparator(Comparator, [_Node|Tl]) ->
-    find_comparator(Comparator, Tl).
+find_comparator(Comparator, [Node|Tl], AllowedMethods) ->
+    find_comparator(Comparator, Tl, [Node#node_comp.comparator|AllowedMethods]).
 
 check_conflicting_nodes(_, _, _, _, []) -> false;
 check_conflicting_nodes(segment, Ident, [], CompNode, Siblings) ->
