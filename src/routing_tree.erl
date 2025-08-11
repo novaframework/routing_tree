@@ -23,7 +23,7 @@ new(Options) ->
 
 -spec lookup(Host :: binary() | '_', Path :: list() | integer() | binary(), Comparator :: any(), #host_tree{}) -> {ok, Bindings :: map(), Value :: any()} |
                                                                                                        {ok, Bindings :: map(), Value :: any(), PathInfo :: [binary()]} |
-                                                                                                       {error, Reason :: term()}.
+                                                                                                       {error, Reason :: term()} | {error, comparator_not_found, AllowedMethods :: [binary()]}.
 lookup(Host, Path, Comparator, Hosts) when is_integer(Path) ->
     lookup(Host, [Path], Comparator, Hosts);
 lookup(Host, Path, Comparator, #host_tree{hosts = Hosts}) ->
